@@ -1,7 +1,3 @@
 export function App() {
-  return (
-    <>
-      ola
-    </>
-  )
+  return <>ola</>
 }
