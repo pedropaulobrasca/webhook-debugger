@@ -73,30 +73,99 @@ pnpm format       # Biome format + lint
 
 **Stack**: Fastify + Drizzle ORM + PostgreSQL + Zod + Vercel AI SDK + Google Gemini
 
+**Arquitetura em Camadas**:
+
+A API segue uma arquitetura em camadas (Layered Architecture) com separação clara de responsabilidades:
+
+```
+Routes (HTTP Layer) → Controllers → Services → Repositories → Database
+```
+
+**Estrutura de diretórios**:
+```
+src/
+├── routes/              # HTTP Layer - roteamento e validação Zod
+├── controllers/         # Orquestração request/response
+├── services/           # Lógica de negócio
+├── repositories/       # Acesso a dados (Drizzle queries)
+├── dto/                # Data Transfer Objects (schemas Zod)
+├── lib/                # Utilitários (container para DI)
+├── db/                 # Database setup
+└── env.ts
+```
+
+**Responsabilidades das camadas**:
+
+1. **Routes**: Apenas roteamento e validação de schema. Delega para Controllers via Container.
+2. **Controllers**: Extrai dados do request, chama Services, formata response HTTP, trata erros.
+3. **Services**: Lógica de negócio, regras, validações. Agnóstico de HTTP.
+4. **Repositories**: Queries ao banco de dados. Sem lógica de negócio.
+5. **DTOs**: Schemas Zod compartilhados para type safety.
+
+**Container (Dependency Injection)**:
+- Singleton pattern manual em `src/lib/container.ts`
+- Gerencia instâncias de Controllers, Services e Repositories
+- Garante única instância de cada classe
+
 **Padrões importantes**:
 - Todas as rotas são Fastify plugins (`FastifyPluginAsyncZod`)
 - Schemas Zod para validação automática de request/response
 - Path aliases: `@/` aponta para `src/`
 - Variáveis de ambiente validadas com Zod em `src/env.ts`
 - Type provider Zod gera OpenAPI/Swagger automaticamente
+- **NUNCA pule camadas**: sempre siga Route → Controller → Service → Repository
 
-**Estrutura de rotas**:
+**Exemplo completo de feature**:
+
 ```typescript
-// src/routes/nome-da-rota.ts
-import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod'
-import { z } from 'zod'
+// dto/webhook.dto.ts
+export const getWebhookParamsSchema = z.object({ id: z.uuidv7() })
 
-export const minhaRota: FastifyPluginAsyncZod = async (app) => {
-  app.get('/api/endpoint', {
-    schema: {
-      summary: 'Descrição',
-      tags: ['Tag'],
-      querystring: z.object({ /* validação */ }),
-      response: { 200: z.object({ /* validação */ }) }
+// repositories/webhook.repository.ts
+export class WebhookRepository {
+  async findById(id: string) {
+    return db.select().from(webhooks).where(eq(webhooks.id, id)).limit(1)
+  }
+}
+
+// services/webhook.service.ts
+export class WebhookService {
+  constructor(private repository: WebhookRepository) {}
+
+  async getWebhookById(id: string) {
+    const webhook = await this.repository.findById(id)
+    if (!webhook) throw new NotFoundError('Webhook not found.')
+    return webhook
+  }
+}
+
+// controllers/webhook.controller.ts
+export class WebhookController {
+  constructor(private service: WebhookService) {}
+
+  async getWebhook(request, reply) {
+    try {
+      const webhook = await this.service.getWebhookById(request.params.id)
+      return reply.send(webhook)
+    } catch (error) {
+      if (error instanceof NotFoundError) {
+        return reply.status(404).send({ message: error.message })
+      }
+      throw error
     }
-  }, async (request, reply) => {
-    // handler
-  })
+  }
+}
+
+// routes/get-webhook.ts
+export const getWebhook: FastifyPluginAsyncZod = async (app) => {
+  const controller = Container.getWebhookController()
+
+  app.get('/api/webhooks/:id', {
+    schema: {
+      params: getWebhookParamsSchema,
+      response: { 200: webhookSchema }
+    }
+  }, (request, reply) => controller.getWebhook(request, reply))
 }
 ```
 
@@ -117,7 +186,7 @@ export const minhaRota: FastifyPluginAsyncZod = async (app) => {
 **IA Integration**:
 - Vercel AI SDK (`ai` package) com `@ai-sdk/google`
 - Modelo: `gemini-2.5-flash`
-- Prompt em `src/routes/generate-handler.ts` instrui a gerar handler TypeScript com Zod schemas
+- Lógica em `src/services/generate-handler.service.ts`
 
 ### Web Architecture
 
@@ -170,11 +239,64 @@ export const minhaRota: FastifyPluginAsyncZod = async (app) => {
 
 ## Important Patterns
 
-### Adding API Routes
-1. Criar `api/src/routes/nome-da-rota.ts` exportando `FastifyPluginAsyncZod`
-2. Definir schemas Zod completos (request + response)
-3. Registrar em `api/src/server.ts`: `app.register(minhaRota)`
-4. Documentação Swagger é gerada automaticamente dos schemas
+### Adding API Features
+
+Siga a arquitetura em camadas ao adicionar novas features:
+
+1. **DTO**: Criar schemas Zod em `api/src/dto/`
+   ```typescript
+   export const createUserBodySchema = z.object({ name: z.string() })
+   ```
+
+2. **Repository**: Criar classe em `api/src/repositories/`
+   ```typescript
+   export class UserRepository {
+     async create(data) { return db.insert(users).values(data) }
+   }
+   ```
+
+3. **Service**: Criar classe em `api/src/services/`
+   ```typescript
+   export class UserService {
+     constructor(private repository: UserRepository) {}
+     async createUser(data) { /* lógica de negócio */ }
+   }
+   ```
+
+4. **Controller**: Criar classe em `api/src/controllers/`
+   ```typescript
+   export class UserController {
+     constructor(private service: UserService) {}
+     async createUser(request, reply) { /* orquestração HTTP */ }
+   }
+   ```
+
+5. **Container**: Adicionar getters em `api/src/lib/container.ts`
+   ```typescript
+   static getUserController() {
+     if (!this.userController) {
+       this.userController = new UserController(this.getUserService())
+     }
+     return this.userController
+   }
+   ```
+
+6. **Route**: Criar em `api/src/routes/` usando Container
+   ```typescript
+   export const createUser: FastifyPluginAsyncZod = async (app) => {
+     const controller = Container.getUserController()
+     app.post('/api/users', { schema }, (req, reply) =>
+       controller.createUser(req, reply)
+     )
+   }
+   ```
+
+7. **Register**: Adicionar em `api/src/server.ts`
+   ```typescript
+   app.register(createUser)
+   ```
+
+**IMPORTANTE**: Nunca pule camadas. Sempre siga o fluxo completo.
 
 ### Adding Web Pages
 1. Criar `web/src/routes/nome-da-pagina.tsx`

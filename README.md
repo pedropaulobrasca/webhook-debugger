@@ -219,18 +219,31 @@ curl -X POST http://localhost:3333/capture/seu-webhook \
 webhook-debugger/
 ├── api/                          # Backend (Fastify)
 │   ├── src/
+│   │   ├── controllers/          # Orquestração request/response
+│   │   │   ├── webhook.controller.ts
+│   │   │   └── generate-handler.controller.ts
+│   │   ├── services/             # Lógica de negócio
+│   │   │   ├── webhook.service.ts
+│   │   │   └── generate-handler.service.ts
+│   │   ├── repositories/         # Acesso a dados
+│   │   │   └── webhook.repository.ts
+│   │   ├── dto/                  # Schemas Zod e tipos
+│   │   │   ├── webhook.dto.ts
+│   │   │   └── generate-handler.dto.ts
+│   │   ├── routes/               # Rotas HTTP (thin layer)
+│   │   │   ├── capture-webhook.ts
+│   │   │   ├── list-webhooks.ts
+│   │   │   ├── get-webhook.ts
+│   │   │   ├── delete-webhook.ts
+│   │   │   └── generate-handler.ts
+│   │   ├── lib/                  # Utilitários
+│   │   │   └── container.ts      # Injeção de dependências
 │   │   ├── db/
 │   │   │   ├── migrations/       # Migrações SQL geradas
 │   │   │   ├── schema/           # Schemas do Drizzle
 │   │   │   │   └── webhooks.ts   # Schema da tabela webhooks
 │   │   │   ├── index.ts          # Conexão do banco
 │   │   │   └── seed.ts           # Script de seed
-│   │   ├── routes/               # Rotas da API (Fastify plugins)
-│   │   │   ├── capture-webhook.ts
-│   │   │   ├── list-webhooks.ts
-│   │   │   ├── get-webhook.ts
-│   │   │   ├── delete-webhook.ts
-│   │   │   └── generate-handler.ts
 │   │   ├── env.ts                # Validação de variáveis de ambiente
 │   │   └── server.ts             # Entry point do servidor
 │   ├── docker-compose.yml        # Container PostgreSQL
@@ -297,14 +310,47 @@ webhook-debugger/
 
 ## Arquitetura
 
-### API
+### API - Arquitetura em Camadas
 
-- **Framework**: Fastify com plugin de type provider Zod
-- **Validação**: Todos os endpoints validam request/response com Zod
-- **Documentação**: Gerada automaticamente via schemas Zod
-- **Database**: PostgreSQL com Drizzle ORM
-- **IDs**: UUIDv7 para ordenação temporal nativa
-- **IA**: Vercel AI SDK com Google Gemini para geração de código
+A API segue uma arquitetura em camadas (Layered Architecture) com separação clara de responsabilidades:
+
+```
+┌─────────────────────────────────────┐
+│         Routes (HTTP Layer)          │  ← Roteamento e validação
+├─────────────────────────────────────┤
+│         Controllers                  │  ← Orquestração HTTP
+├─────────────────────────────────────┤
+│         Services                     │  ← Lógica de negócio
+├─────────────────────────────────────┤
+│         Repositories                 │  ← Acesso a dados
+├─────────────────────────────────────┤
+│         Database (Drizzle ORM)       │
+└─────────────────────────────────────┘
+```
+
+**Camadas**:
+
+1. **Routes (HTTP Layer)**: Apenas roteamento e validação de schema com Zod. Delega para Controllers.
+2. **Controllers**: Orquestração de request/response. Extrai dados, chama Services, formata resposta HTTP.
+3. **Services**: Lógica de negócio e regras. Agnóstico de HTTP, pode ser usado em CLIs/jobs.
+4. **Repositories**: Acesso a dados com Drizzle ORM. Queries isoladas, sem lógica de negócio.
+5. **DTOs**: Schemas Zod compartilhados entre todas as camadas para type safety.
+
+**Container**: Injeção de dependências manual com Singleton pattern para gerenciar instâncias.
+
+**Vantagens**:
+- Testabilidade: Services e Repositories facilmente testáveis sem HTTP
+- Reusabilidade: Lógica pode ser reutilizada em diferentes contextos
+- Manutenibilidade: Mudanças isoladas em cada camada
+- Escalabilidade: Padrão consistente para adicionar features
+
+**Stack Técnico**:
+- Framework: Fastify com plugin de type provider Zod
+- Validação: Schemas Zod em todas as camadas
+- Documentação: Gerada automaticamente via schemas
+- Database: PostgreSQL com Drizzle ORM
+- IDs: UUIDv7 para ordenação temporal nativa
+- IA: Vercel AI SDK com Google Gemini
 
 ### Web
 
