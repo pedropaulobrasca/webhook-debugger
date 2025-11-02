@@ -2,9 +2,7 @@ import { Loader2, Wand2 } from 'lucide-react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { webhookListSchema } from '../http/schemas/webhooks'
 import { WebhooksListItem } from './webhooks-list-item'
-import {
-  useSuspenseInfiniteQuery,
-} from '@tanstack/react-query'
+import { useSuspenseInfiniteQuery } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 import { CodeBlock } from './ui/code-block'
 
@@ -13,7 +11,9 @@ export function WebhooksList() {
   const observerRef = useRef<IntersectionObserver>(null)
 
   const [checkedWebhooksIds, setCheckedWebhooksIds] = useState<string[]>([])
-  const [generatedHandlerCode, setGeneratedHandlerCode] = useState<string | null>(null)
+  const [generatedHandlerCode, setGeneratedHandlerCode] = useState<
+    string | null
+  >(null)
 
   const { data, hasNextPage, fetchNextPage, isFetchingNextPage } =
     useSuspenseInfiniteQuery({
@@ -69,11 +69,11 @@ export function WebhooksList() {
 
   function handleCheckWebhook(checkedWebhookId: string) {
     if (checkedWebhooksIds.includes(checkedWebhookId)) {
-      setCheckedWebhooksIds(state => {
-        return state.filter(webhookId => webhookId !== checkedWebhookId)
+      setCheckedWebhooksIds((state) => {
+        return state.filter((webhookId) => webhookId !== checkedWebhookId)
       })
     } else {
-      setCheckedWebhooksIds(state => [...state, checkedWebhookId])
+      setCheckedWebhooksIds((state) => [...state, checkedWebhookId])
     }
   }
 
@@ -82,7 +82,7 @@ export function WebhooksList() {
       method: 'POST',
       body: JSON.stringify({ webhookIds: checkedWebhooksIds }),
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
       },
     })
 
